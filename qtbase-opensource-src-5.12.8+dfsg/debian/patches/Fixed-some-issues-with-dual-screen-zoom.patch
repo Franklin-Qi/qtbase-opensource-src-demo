@@ -1,0 +1,35 @@
+Index: qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qhighdpiscaling_p.h
+===================================================================
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qhighdpiscaling_p.h
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qhighdpiscaling_p.h
+@@ -140,12 +140,12 @@ inline QVector2D scale(const QVector2D &
+ 
+ inline QPointF scale(const QPointF &pos, qreal scaleFactor, QPointF origin = QPointF(0, 0))
+ {
+-     return (pos - origin) * scaleFactor + origin;
++     return (pos - origin) * scaleFactor + origin * scaleFactor;
+ }
+ 
+ inline QPoint scale(const QPoint &pos, qreal scaleFactor, QPoint origin = QPoint(0, 0))
+ {
+-     return (pos - origin) * scaleFactor + origin;
++     return (pos - origin) * scaleFactor + origin * scaleFactor;
+ }
+ 
+ inline QRect scale(const QRect &rect, qreal scaleFactor, QPoint origin = QPoint(0, 0))
+Index: qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qscreen.cpp
+===================================================================
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qscreen.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qscreen.cpp
+@@ -375,6 +375,11 @@ QSize QScreen::availableSize() const
+ QRect QScreen::geometry() const
+ {
+     Q_D(const QScreen);
++    
++    if (d->platformScreen){
++        return QHighDpi::fromNativePixels(d->platformScreen->geometry(), this);
++    }
++
+     return d->geometry;
+ }
+ 

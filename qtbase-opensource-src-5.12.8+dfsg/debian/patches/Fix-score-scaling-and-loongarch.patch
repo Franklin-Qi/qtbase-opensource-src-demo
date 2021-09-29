@@ -1,0 +1,380 @@
+Description: Fix-score-scaling-and-loongarch
+ TODO: Put a short summary on the line above and replace this paragraph
+ with a longer explanation of this change. Complete the meta-information
+ with other relevant fields (see below for details). To make it easier, the
+ information below has been extracted from the changelog. Adjust it or drop
+ it.
+ .
+ qtbase-opensource-src (5.12.8+dfsg-0kylin1k7) v101; urgency=medium
+ .
+   * BUG号：无；
+   * 需求号：无
+   * 其他改动：适配龙芯5000、 修复了分数缩放的一些问题。
+   - debian/patches/Fix-score-scaling-and-loongarch.patch
+Author: chechen <chechen@kylinos.cn>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: https://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: 2021-09-13
+
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/corelib/global/archdetect.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/corelib/global/archdetect.cpp
+@@ -59,6 +59,10 @@
+ #  define ARCH_PROCESSOR "x86_64"
+ #elif defined(Q_PROCESSOR_IA64)
+ #  define ARCH_PROCESSOR "ia64"
++#elif defined(Q_PROCESSOR_LOONGARCH_64)
++#  define ARCH_PROCESSOR "loongarch64"
++#elif defined(Q_PROCESSOR_LOONGARCH)
++#  define ARCH_PROCESSOR "loongarch"
+ #elif defined(Q_PROCESSOR_MIPS_64)
+ #  define ARCH_PROCESSOR "mips64"
+ #elif defined(Q_PROCESSOR_MIPS)
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/corelib/global/qprocessordetection.h
++++ qtbase-opensource-src-5.12.8+dfsg/src/corelib/global/qprocessordetection.h
+@@ -233,6 +233,17 @@
+ 
+     MIPS is bi-endian, use endianness auto-detection implemented below.
+ */
++#elif defined(_loongarch) || defined(__loongarch__) 
++#  define Q_PROCESSOR_LOONGARCH
++#  if defined(__loongarch64)
++#    define Q_PROCESSOR_LOONGARCH_64
++#    define Q_PROCESSOR_WORDSIZE 8
++#  endif
++/*
++    MIPS family, known revisions: I, II, III, IV, 32, 64
++
++    MIPS is bi-endian, use endianness auto-detection implemented below.
++*/
+ #elif defined(__mips) || defined(__mips__) || defined(_M_MRX000)
+ #  define Q_PROCESSOR_MIPS
+ #  if defined(_MIPS_ARCH_MIPS1) || (defined(__mips) && __mips - 0 >= 1)
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qhighdpiscaling.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qhighdpiscaling.cpp
+@@ -226,7 +226,9 @@ bool QHighDpiScaling::m_usePixelDensity
+ bool QHighDpiScaling::m_pixelDensityScalingActive = false; // pixel density scale factor > 1
+ bool QHighDpiScaling::m_globalScalingActive = false; // global scale factor is active
+ bool QHighDpiScaling::m_screenFactorSet = false; // QHighDpiScaling::setScreenFactor has been used
+-QDpi QHighDpiScaling::m_logicalDpi = QDpi(-1,-1); // The scaled logical DPI of the primary screen
++
++typedef QHash<QString, qreal> QScreenScaleFactorHash;
++Q_GLOBAL_STATIC(QScreenScaleFactorHash, qNamedScreenScaleFactors);
+ 
+ /*
+     Initializes the QHighDpiScaling global variables. Called before the
+@@ -250,6 +252,36 @@ static inline bool usePixelDensity()
+             qgetenv(legacyDevicePixelEnvVar).compare("auto", Qt::CaseInsensitive) == 0);
+ }
+ 
++qreal QHighDpiScaling::rawScaleFactor(const QPlatformScreen *screen)
++{
++    // Calculate scale factor beased on platform screen DPI values
++    qreal factor;
++    QDpi platformBaseDpi = QDpi(96, 96);
++    QDpi platformLogicalDpi = screen->logicalDpi();
++    factor = qreal(platformLogicalDpi.first) / qreal(platformBaseDpi.first);
++    return factor;
++}
++
++qreal QHighDpiScaling::roundScaleFactor(qreal rawFactor)
++{
++    // Don't round down to to zero; clamp the minimum (rounded) factor to 1.
++    // This is not a common case but can happen if a display reports a very
++    // low DPI.
++    qreal roundedFactor = rawFactor;
++    roundedFactor = qMax(roundedFactor, qreal(1));
++
++    return roundedFactor;
++}
++
++QDpi QHighDpiScaling::effectiveLogicalDpi(const QPlatformScreen *screen, qreal rawFactor, qreal roundedFactor)
++{
++    // Apply adjustment policy.
++    const QDpi baseDpi = QDpi(96, 96);
++    const qreal dpiAdjustmentFactor = rawFactor / roundedFactor;
++
++    return QDpi(baseDpi.first * dpiAdjustmentFactor, baseDpi.second * dpiAdjustmentFactor);
++}
++
+ void QHighDpiScaling::initHighDpiScaling()
+ {
+     // Determine if there is a global scale factor set.
+@@ -283,20 +315,19 @@ void QHighDpiScaling::updateHighDpiScali
+         int i = 0;
+         const auto specs = qgetenv(screenFactorsEnvVar).split(';');
+         for (const QByteArray &spec : specs) {
+-            QScreen *screen = 0;
+             int equalsPos = spec.lastIndexOf('=');
+-            double factor = 0;
++            qreal factor = 0;
+             if (equalsPos > 0) {
+                 // support "name=factor"
+                 QByteArray name = spec.mid(0, equalsPos);
+                 QByteArray f = spec.mid(equalsPos + 1);
+                 bool ok;
+                 factor = f.toDouble(&ok);
+-                if (ok) {
++                if (ok && factor > 0 ) {
+                     const auto screens = QGuiApplication::screens();
+                     for (QScreen *s : screens) {
+                         if (s->name() == QString::fromLocal8Bit(name)) {
+-                            screen = s;
++                            setScreenFactor(s, factor);
+                             break;
+                         }
+                     }
+@@ -305,23 +336,15 @@ void QHighDpiScaling::updateHighDpiScali
+                 // listing screens in order
+                 bool ok;
+                 factor = spec.toDouble(&ok);
+-                if (ok && i < QGuiApplication::screens().count())
+-                    screen = QGuiApplication::screens().at(i);
++                if (ok && factor > 0 && i < QGuiApplication::screens().count()) {
++                    QScreen *screen = QGuiApplication::screens().at(i);
++                    setScreenFactor(screen, factor);
++                }
+             }
+-            if (screen)
+-                setScreenFactor(screen, factor);
+-            ++i;
++           ++i;
+         }
+     }
+-    m_active = m_globalScalingActive || m_screenFactorSet || m_pixelDensityScalingActive;
+-
+-    QScreen *primaryScreen = QGuiApplication::primaryScreen();
+-    if (!primaryScreen)
+-        return;
+-    QPlatformScreen *platformScreen = primaryScreen->handle();
+-    qreal sf = screenSubfactor(platformScreen);
+-    QDpi primaryDpi = platformScreen->logicalDpi();
+-    m_logicalDpi = QDpi(primaryDpi.first / sf, primaryDpi.second / sf);
++    m_active = m_globalScalingActive || m_usePixelDensity;
+ }
+ 
+ /*
+@@ -353,7 +376,13 @@ void QHighDpiScaling::setScreenFactor(QS
+         m_screenFactorSet = true;
+         m_active = true;
+     }
+-    screen->setProperty(scaleFactorProperty, QVariant(factor));
++    // Prefer associating the factor with screen name over the object
++    // since the screen object may be deleted on screen disconnects.
++    const QString name = screen->name();
++    if (name.isEmpty())
++        screen->setProperty(scaleFactorProperty, QVariant(factor));
++    else
++        qNamedScreenScaleFactors()->insert(name, factor);
+ 
+     // hack to force re-evaluation of screen geometry
+     if (screen->handle())
+@@ -421,35 +450,48 @@ QPoint QHighDpiScaling::mapPositionFromG
+ qreal QHighDpiScaling::screenSubfactor(const QPlatformScreen *screen)
+ {
+     qreal factor = qreal(1.0);
+-    if (screen) {
+-        if (m_usePixelDensity) {
+-            qreal pixelDensity = screen->pixelDensity();
+-
+-            // Pixel density reported by the screen is sometimes not precise enough,
+-            // so recalculate it: divide px (physical pixels) by dp (device-independent pixels)
+-            // for both width and height, and then use the average if it is different from
+-            // the one initially reported by the screen
+-            QRect screenGeometry = screen->geometry();
+-            qreal wFactor = qreal(screenGeometry.width()) / qRound(screenGeometry.width() / pixelDensity);
+-            qreal hFactor = qreal(screenGeometry.height()) / qRound(screenGeometry.height() / pixelDensity);
+-            qreal averageDensity = (wFactor + hFactor) / 2;
+-            if (!qFuzzyCompare(pixelDensity, averageDensity))
+-                pixelDensity = averageDensity;
++    if (!screen)
++            return factor;
+ 
+-            factor *= pixelDensity;
+-        }
+-        if (m_screenFactorSet) {
+-            QVariant screenFactor = screen->screen()->property(scaleFactorProperty);
+-            if (screenFactor.isValid())
+-                factor *= screenFactor.toReal();
++    // Unlike the other code where factors are combined by multiplication,
++    // factors from QT_SCREEN_SCALE_FACTORS takes precedence over the factor
++    // computed from platform plugin DPI. The rationale is that the user is
++    // setting the factor to override erroneous DPI values.
++    bool screenPropertyUsed = false;
++    if (m_screenFactorSet) {
++        // Check if there is a factor set on the screen object or associated
++        // with the screen name. These are mutually exclusive, so checking
++        // order is not significant.
++        QVariant byIndex = screen->screen()->property(scaleFactorProperty);
++        auto byNameIt = qNamedScreenScaleFactors()->constFind(screen->name());
++        if (byIndex.isValid()) {
++            screenPropertyUsed = true;
++            factor = byIndex.toReal();
++        } else if (byNameIt != qNamedScreenScaleFactors()->cend()) {
++            screenPropertyUsed = true;
++            factor = *byNameIt;
+         }
+     }
++    if (!screenPropertyUsed && m_usePixelDensity)
++        factor = roundScaleFactor(rawScaleFactor(screen));
++
+     return factor;
+ }
+ 
+-QDpi QHighDpiScaling::logicalDpi()
++QDpi QHighDpiScaling::logicalDpi(const QScreen *screen)
+ {
+-    return m_logicalDpi;
++    // (Note: m_active test is performed at call site.)
++    if (!screen || !screen->handle()){
++        return QDpi(96, 96);
++    }
++
++    if (!m_usePixelDensity)
++        return screen->handle()->logicalDpi();
++
++    const qreal scaleFactor = rawScaleFactor(screen->handle());
++    const qreal roundedScaleFactor = roundScaleFactor(scaleFactor);
++
++    return effectiveLogicalDpi(screen->handle(), scaleFactor, roundedScaleFactor);
+ }
+ 
+ QHighDpiScaling::ScaleAndOrigin QHighDpiScaling::scaleAndOrigin(const QPlatformScreen *platformScreen, QPoint *nativePosition)
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qhighdpiscaling_p.h
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qhighdpiscaling_p.h
+@@ -98,11 +98,13 @@ public:
+     static QPoint mapPositionToNative(const QPoint &pos, const QPlatformScreen *platformScreen);
+     static QPoint mapPositionToGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window);
+     static QPoint mapPositionFromGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window);
+-    static QDpi logicalDpi();
++    static QDpi logicalDpi(const QScreen *screen);
+ 
+ private:
++    static qreal rawScaleFactor(const QPlatformScreen *screen);
++    static qreal roundScaleFactor(qreal rawFactor);
++    static QDpi effectiveLogicalDpi(const QPlatformScreen *screen, qreal rawFactor, qreal roundedFactor);
+     static qreal screenSubfactor(const QPlatformScreen *screen);
+-
+     static qreal m_factor;
+     static bool m_active;
+     static bool m_usePixelDensity;
+@@ -140,12 +142,12 @@ inline QVector2D scale(const QVector2D &
+ 
+ inline QPointF scale(const QPointF &pos, qreal scaleFactor, QPointF origin = QPointF(0, 0))
+ {
+-     return (pos - origin) * scaleFactor + origin * scaleFactor;
++    return (pos - origin) * scaleFactor + origin * scaleFactor;
+ }
+ 
+ inline QPoint scale(const QPoint &pos, qreal scaleFactor, QPoint origin = QPoint(0, 0))
+ {
+-     return (pos - origin) * scaleFactor + origin * scaleFactor;
++    return (pos - origin) * scaleFactor + origin * scaleFactor;
+ }
+ 
+ inline QRect scale(const QRect &rect, qreal scaleFactor, QPoint origin = QPoint(0, 0))
+@@ -184,8 +186,10 @@ inline QRegion scale(const QRegion &regi
+         return region;
+ 
+     QRegion scaled;
+-    for (const QRect &rect : region)
++    for (const QRect &rect : region){
+         scaled += scale(QRectF(rect), scaleFactor, origin).toRect();
++    }
++
+     return scaled;
+ }
+ 
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qscreen.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qscreen.cpp
+@@ -279,7 +279,7 @@ qreal QScreen::logicalDotsPerInchX() con
+ {
+     Q_D(const QScreen);
+     if (QHighDpiScaling::isActive())
+-        return QHighDpiScaling::logicalDpi().first;
++        return QHighDpiScaling::logicalDpi(this).first;
+     return d->logicalDpi.first;
+ }
+ 
+@@ -295,7 +295,7 @@ qreal QScreen::logicalDotsPerInchY() con
+ {
+     Q_D(const QScreen);
+     if (QHighDpiScaling::isActive())
+-        return QHighDpiScaling::logicalDpi().second;
++        return QHighDpiScaling::logicalDpi(this).second;
+     return d->logicalDpi.second;
+ }
+ 
+@@ -314,7 +314,7 @@ qreal QScreen::logicalDotsPerInchY() con
+ qreal QScreen::logicalDotsPerInch() const
+ {
+     Q_D(const QScreen);
+-    QDpi dpi = QHighDpiScaling::isActive() ? QHighDpiScaling::logicalDpi() : d->logicalDpi;
++    QDpi dpi = QHighDpiScaling::isActive() ? QHighDpiScaling::logicalDpi(this) : d->logicalDpi;
+     return (dpi.first + dpi.second) * qreal(0.5);
+ }
+ 
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qwindow.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qwindow.cpp
+@@ -1654,7 +1654,8 @@ void QWindow::setGeometry(const QRect &r
+         if (newScreen && isTopLevel())
+             nativeRect = QHighDpi::toNativePixels(rect, newScreen);
+         else
+-            nativeRect = QHighDpi::toNativeLocalPosition(rect, newScreen);
++            nativeRect = QHighDpi::toNativePixels(rect, this);
++
+         d->platformWindow->setGeometry(nativeRect);
+     } else {
+         d->geometry = rect;
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/painting/qpaintengine_raster.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/painting/qpaintengine_raster.cpp
+@@ -1341,7 +1341,7 @@ void QRasterPaintEngine::clip(const QRec
+         QPaintEngineEx::clip(rect, op);
+         return;
+ 
+-    } else if (!setClipRectInDeviceCoords(s->matrix.mapRect(rect), op)) {
++    } else if (!setClipRectInDeviceCoords(s->matrix.mapRect(QRectF(rect)).toRect(), op)) {
+         QPaintEngineEx::clip(rect, op);
+         return;
+     }
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/painting/qtransform.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/painting/qtransform.cpp
+@@ -1517,11 +1517,26 @@ QRegion QTransform::map(const QRegion &r
+         return copy;
+     }
+ 
+-    if (t == TxScale && r.rectCount() == 1)
+-        return QRegion(mapRect(r.boundingRect()));
++    if (t == TxScale) {
++        QRegion res;
++        if (m11() < 0 || m22() < 0) {
++            for (const QRect &rect : r)
++                res += mapRect(QRectF(rect)).toRect();
++        } else {
++            QVarLengthArray<QRect, 32> rects;
++            rects.reserve(r.rectCount());
++            for (const QRect &rect : r) {
++                QRect nr = mapRect(QRectF(rect)).toRect();
++                if (!nr.isEmpty())
++                    rects.append(nr);
++            }
++            res.setRects(rects.constData(), rects.count());
++        }
++        return res;
++    }
+ 
+     QPainterPath p = map(qt_regionToPath(r));
+-    return p.toFillPolygon(QTransform()).toPolygon();
++    return p.toFillPolygon().toPolygon();
+ }
+ 
+ struct QHomogeneousCoordinate

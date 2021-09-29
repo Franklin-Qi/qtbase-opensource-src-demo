@@ -1,0 +1,83 @@
+ dpkg-buildpackage -us -uc -ui
+dpkg-buildpackage: info: 源码包 qtbase-opensource-src
+dpkg-buildpackage: info: 源码版本 5.12.8+dfsg-0kylin1k7
+dpkg-buildpackage: info: source distribution v101
+dpkg-buildpackage: info: 源码修改者 chechen <chechen@kylinos.cn>
+ dpkg-source --before-build .
+dpkg-buildpackage: info: 主机架构 amd64
+ fakeroot debian/rules clean
+dh clean --with pkgkde_symbolshelper
+   debian/rules override_dh_auto_clean
+make[1]: 进入目录“/home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg”
+[ ! -f Makefile ] || /usr/bin/make confclean distclean
+# Extra stuff missed by confclean/distclean
+# Misc. files
+rm -f \
+  config.status \
+  config.tests/.qmake.cache \
+  examples/dbus/*/Makefile.* \
+  mkspecs/qconfig.pri \
+  src/corelib/global/qconfig.* \
+;
+# Misc. directories
+rm -rf \
+  doc-build/ \
+  doc/html/ \
+  doc/qch/ \
+  examples/tools/plugandpaint/plugins/ \
+  examples/tools/styleplugin/styles/ \
+  lib/ \
+  plugins/ \
+;
+# Leftover dirs
+find -depth -type d \( -false \
+  -o -name debug-shared \
+  -o -name debug-static \
+  -o -name \*.gch \
+  -o -name .moc\* \
+  -o -name .obj\* \
+  -o -name .pch \
+  -o -name pkgconfig \
+  -o -name .rcc \
+  -o -name release-shared \
+  -o -name release-static \
+  -o -name .uic \
+\) -print0 | xargs -0 rm -rf
+# Leftover files and all symlinks
+find \( -false \
+  -o -name lib\*.a \
+  -o -name Makefile.Debug \
+  -o -name Makefile.Release \
+  -o -name \*.o \
+  -o -name \*.prl \
+  -o -name lib\*.so \
+  -o -type l \
+\) -print0 | xargs -0 rm -rf
+# Delete all Makefiles, excluding some from src/3rdparty
+find /home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg -name Makefile \
+  ! -path /home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg/src/3rdparty/Makefile \
+  ! -path /home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg/src/3rdparty/freetype/\* \
+  ! -path /home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg/src/3rdparty/zlib/\* \
+  ! -path /home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg/src/3rdparty/ptmalloc/Makefile \
+-print0 | xargs -0 rm -rf
+# Any remaining executables
+find /home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg -type f -perm /u+x,g+x,o+x -exec file -i '{}' \; \
+| grep -e application/x-executable \
+| cut -d ':' -f 1 | xargs rm -f
+# Generated on build
+rm -vf debian/stamp-makefile-build-tools
+# more leftovers
+rm -f .device.vars .qmake.vars
+make[1]: 离开目录“/home/yushuoqi/code/qtbase-opensource-src/qtbase-opensource-src-5.12.8+dfsg”
+   dh_clean
+ dpkg-source -b .
+dpkg-source: info: using source format '3.0 (quilt)'
+dpkg-source: info: building qtbase-opensource-src using existing ./qtbase-opensource-src_5.12.8+dfsg.orig.tar.xz
+dpkg-source: info: using patch list from debian/patches/series
+dpkg-source: 警告: ignoring deletion of file tests/auto/xml/sax/qxmlsimplereader/xmldocs/valid/sa/089.xml.bak, use --include-removal to override
+dpkg-source: 警告: 忽略对目录 lib 的删除指令
+dpkg-source: 警告: ignoring deletion of file lib/README, use --include-removal to override
+dpkg-source: 错误: cannot represent change to qtbase-opensource-src-build-deps_5.12.8+dfsg-0kylin1k7_amd64.deb: 二进制文件内容已改变
+dpkg-source: 错误: add qtbase-opensource-src-build-deps_5.12.8+dfsg-0kylin1k7_amd64.deb in debian/source/include-binaries if you want to store the modified binary in the debian tarball
+dpkg-source: 错误: unrepresentable changes to source
+dpkg-buildpackage: 错误: dpkg-source -b . subprocess returned exit status 2

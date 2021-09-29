@@ -1,0 +1,37 @@
+Description: <short summary of the patch>
+ TODO: Put a short summary on the line above and replace this paragraph
+ with a longer explanation of this change. Complete the meta-information
+ with other relevant fields (see below for details). To make it easier, the
+ information below has been extracted from the changelog. Adjust it or drop
+ it.
+ .
+ qtbase-opensource-src (5.12.8+dfsg-0kylin3k1) v101; urgency=medium
+ .
+   * Fix: Touch and click the blank position to hide the right-click menu, the application touch is invalid.
+Author: wangweinan <wangweinan@kylinos.cn>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: https://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: 2021-08-26
+
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qguiapplication.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qguiapplication.cpp
+@@ -2881,7 +2881,8 @@ void QGuiApplicationPrivate::processTouc
+                 QEvent::Type mouseEventType = QEvent::MouseMove;
+                 Qt::MouseButton button = Qt::NoButton;
+                 Qt::MouseButtons buttons = Qt::LeftButton;
+-                if (eventType == QEvent::TouchBegin && m_fakeMouseSourcePointId < 0)
++                if ((eventType == QEvent::TouchBegin && m_fakeMouseSourcePointId < 0)
++                        || (touchPoints.count() == 1 && m_fakeMouseSourcePointId != touchPoints.first().id()))
+                     m_fakeMouseSourcePointId = touchPoints.first().id();
+                 for (const auto &touchPoint : touchPoints) {
+                     if (touchPoint.id() == m_fakeMouseSourcePointId) {

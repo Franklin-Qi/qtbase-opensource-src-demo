@@ -1,0 +1,59 @@
+Index: qtbase-opensource-src-5.12.8+dfsg/src/gui/image/qicon.cpp
+===================================================================
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/image/qicon.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/image/qicon.cpp
+@@ -185,7 +185,12 @@ QPixmapIconEngine::~QPixmapIconEngine()
+ 
+ void QPixmapIconEngine::paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state)
+ {
+-    QSize pixmapSize = rect.size() * qt_effective_device_pixel_ratio(0);
++    qreal dpr = 1.0;
++    if (QCoreApplication::testAttribute(Qt::AA_UseHighDpiPixmaps)) {
++      auto paintDevice = painter->device();
++      dpr = paintDevice ? paintDevice->devicePixelRatioF() : qApp->devicePixelRatio();
++    }
++    const QSize pixmapSize = rect.size() * dpr;
+     QPixmap px = pixmap(pixmapSize, mode, state);
+     painter->drawPixmap(rect, px);
+ }
+Index: qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qhighdpiscaling_p.h
+===================================================================
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qhighdpiscaling_p.h
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qhighdpiscaling_p.h
+@@ -185,7 +185,7 @@ inline QRegion scale(const QRegion &regi
+ 
+     QRegion scaled;
+     for (const QRect &rect : region)
+-        scaled += scale(rect, scaleFactor, origin);
++        scaled += scale(QRectF(rect), scaleFactor, origin).toRect();
+     return scaled;
+ }
+ 
+Index: qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qwindow.cpp
+===================================================================
+--- qtbase-opensource-src-5.12.8+dfsg.orig/src/gui/kernel/qwindow.cpp
++++ qtbase-opensource-src-5.12.8+dfsg/src/gui/kernel/qwindow.cpp
+@@ -1654,7 +1654,7 @@ void QWindow::setGeometry(const QRect &r
+         if (newScreen && isTopLevel())
+             nativeRect = QHighDpi::toNativePixels(rect, newScreen);
+         else
+-            nativeRect = QHighDpi::toNativePixels(rect, this);
++            nativeRect = QHighDpi::toNativeLocalPosition(rect, newScreen);
+         d->platformWindow->setGeometry(nativeRect);
+     } else {
+         d->geometry = rect;
+@@ -1705,8 +1705,12 @@ QScreen *QWindowPrivate::screenForGeomet
+ QRect QWindow::geometry() const
+ {
+     Q_D(const QWindow);
+-    if (d->platformWindow)
+-        return QHighDpi::fromNativePixels(d->platformWindow->geometry(), this);
++    if (d->platformWindow){
++        const auto nativeGeometry = d->platformWindow->geometry();
++        return isTopLevel()
++            ? QHighDpi::fromNativePixels(nativeGeometry, this)
++            : QHighDpi::fromNativeLocalPosition(nativeGeometry, this);
++    }
+     return d->geometry;
+ }
+ 
